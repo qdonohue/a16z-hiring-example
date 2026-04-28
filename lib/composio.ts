@@ -32,7 +32,7 @@ export async function composioExec(
 
   try {
     const entity = client.getEntity("default");
-    const result = await entity.executeAction(toolSlug, input, {});
+    const result = await entity.execute({ actionName: toolSlug, params: input });
     console.log(`[composio] ✓ ${toolSlug} completed in ${Date.now() - start}ms`);
     return result;
   } catch (err: any) {
