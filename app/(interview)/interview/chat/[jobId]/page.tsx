@@ -15,6 +15,7 @@ import {
   SendIcon,
   XCircleIcon,
   ShieldCheckIcon,
+  RotateCcwIcon,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -371,6 +372,14 @@ export default function InterviewChatPage() {
               Context loaded
             </div>
           )}
+          <button
+            className="flex items-center gap-1.5 rounded-lg border border-border/30 px-2.5 py-1.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => router.push("/")}
+            title="Start a new interview"
+          >
+            <RotateCcwIcon className="size-3" />
+            Restart
+          </button>
         </div>
 
         {/* Messages */}

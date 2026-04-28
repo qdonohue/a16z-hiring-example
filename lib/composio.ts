@@ -10,7 +10,6 @@ function getClient(): Composio | null {
   if (!_client) {
     _client = new Composio({
       apiKey: process.env.COMPOSIO_API_KEY,
-      baseUrl: process.env.COMPOSIO_BASE_URL || "https://backend.composio.dev",
     });
   }
   return _client;
