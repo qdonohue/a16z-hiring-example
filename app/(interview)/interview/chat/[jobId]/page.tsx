@@ -76,7 +76,7 @@ export default function InterviewChatPage() {
 
   // useChat sends `body` with every request — so once enrichment lands,
   // the next API call automatically gets it in the system prompt
-  const { messages, input, setInput, status, sendMessage } = useChat({
+  const { messages, input = "", setInput, status, sendMessage } = useChat({
     api: "/api/interview",
     body: {
       jobId,
