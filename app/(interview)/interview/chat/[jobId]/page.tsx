@@ -95,7 +95,8 @@ export default function InterviewChatPage() {
       })
   );
 
-  const { messages, input = "", setInput, status, sendMessage, error } = useChat({
+  const [input, setInput] = useState("");
+  const { messages, status, sendMessage, error } = useChat({
     transport,
     onError: (err) => {
       console.error("[useChat] error:", err);
