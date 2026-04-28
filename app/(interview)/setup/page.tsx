@@ -143,21 +143,21 @@ export default function SetupPage() {
         {/* Pre-interview integrations */}
         <Section title="Pre-Interview Enrichment" subtitle="Public data only — nothing from internal systems touches the AI prompt">
           {PRE_INTERVIEW.map((i) => (
-            <IntegrationRow key={i.key} {...i} connected={integrations[i.key]} loading={loading && !status?.integrations} />
+            <IntegrationRow key={i.key} label={i.label} slug={i.slug} purpose={i.purpose} connected={integrations[i.key]} loading={loading && !status?.integrations} />
           ))}
         </Section>
 
         {/* Post-interview integrations */}
         <Section title="Post-Interview Actions" subtitle="Write-back only — CRM/email data never enters the AI conversation">
           {POST_INTERVIEW.map((i) => (
-            <IntegrationRow key={i.key} {...i} connected={integrations[i.key]} loading={loading && !status?.integrations} />
+            <IntegrationRow key={i.key} label={i.label} slug={i.slug} purpose={i.purpose} connected={integrations[i.key]} loading={loading && !status?.integrations} />
           ))}
         </Section>
 
         {/* Optional */}
         <Section title="Optional" subtitle="Commented out in code — uncomment and connect to enable">
           {OPTIONAL.map((i) => (
-            <IntegrationRow key={i.key} {...i} connected={integrations[i.key]} loading={loading && !status?.integrations} />
+            <IntegrationRow key={i.key} label={i.label} slug={i.slug} purpose={i.purpose} connected={integrations[i.key]} loading={loading && !status?.integrations} />
           ))}
         </Section>
 
