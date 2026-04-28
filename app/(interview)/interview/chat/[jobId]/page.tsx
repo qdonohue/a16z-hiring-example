@@ -77,12 +77,15 @@ export default function InterviewChatPage() {
 
   // useChat sends `body` with every request — so once enrichment lands,
   // the next API call automatically gets it in the system prompt
-  const { messages, input = "", setInput, status, sendMessage } = useChat({
+  const { messages, input = "", setInput, status, sendMessage, error } = useChat({
     api: "/api/interview",
     body: {
       jobId,
       candidate,
       enrichment, // null at first, populated later — AI adapts
+    },
+    onError: (err) => {
+      console.error("[useChat] error:", err);
     },
   });
 
@@ -115,19 +118,23 @@ export default function InterviewChatPage() {
   }, [candidate, enrichmentStatus]);
 
   // Start interview immediately — don't wait for enrichment
+  // Use a timeout to ensure the useChat body prop has picked up the candidate state
   useEffect(() => {
     if (!candidate || hasSentInitial.current) return;
     hasSentInitial.current = true;
 
-    sendMessage({
-      role: "user",
-      parts: [
-        {
-          type: "text",
-          text: "[Interview session started. The candidate is ready. Please begin with your opening greeting and first question.]",
-        },
-      ],
-    });
+    const timer = setTimeout(() => {
+      sendMessage({
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: "[Interview session started. The candidate is ready. Please begin with your opening greeting and first question.]",
+          },
+        ],
+      });
+    }, 100);
+    return () => clearTimeout(timer);
   }, [candidate, sendMessage]);
 
   // Detect evaluation in messages and trigger post-interview actions
@@ -385,7 +392,20 @@ export default function InterviewChatPage() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
           <div className="mx-auto max-w-2xl space-y-5">
-            {displayMessages.length === 0 && (
+            {error && (
+              <div className="rounded-lg border border-red-200/50 bg-red-50/50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
+                <p className="font-medium">Error</p>
+                <p className="mt-1 text-xs">{error.message}</p>
+                <button
+                  className="mt-2 text-xs underline"
+                  onClick={() => window.location.reload()}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {!error && displayMessages.length === 0 && (
               <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
                 Starting conversation...

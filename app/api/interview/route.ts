@@ -40,7 +40,11 @@ export async function POST(request: Request) {
   const systemPromptText = buildInterviewSystemPrompt(job, candidate, enrichment ?? undefined);
 
   // Convert from UI message format (parts) to model message format (content)
-  const modelMessages = await convertToModelMessages(messages || []);
+  // If no messages or only the system trigger, treat as "start the interview"
+  const rawMessages = messages || [];
+  const modelMessages = rawMessages.length > 0
+    ? await convertToModelMessages(rawMessages)
+    : [{ role: "user" as const, content: "Please begin the interview with your opening greeting and first question." }];
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
