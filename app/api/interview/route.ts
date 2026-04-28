@@ -1,45 +1,59 @@
 import { anthropic } from "@ai-sdk/anthropic";
-import { createUIMessageStream, createUIMessageStreamResponse, streamText } from "ai";
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, streamText } from "ai";
 import { buildInterviewSystemPrompt, loadJobContext } from "@/lib/ai/interview";
 import type { CandidateInfo, EnrichmentData } from "@/lib/ai/interview";
 
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const {
-    messages,
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400 });
+  }
+
+  // useChat sends { messages, ...body } where body comes from the body prop
+  const { messages, jobId, candidate, enrichment } = body;
+
+  console.log("[interview] POST received:", {
+    messageCount: messages?.length,
     jobId,
-    candidate,
-    enrichment,
-  }: {
-    messages: any[];
-    jobId: string;
-    candidate: CandidateInfo;
-    enrichment?: EnrichmentData;
-  } = body;
+    candidateEmail: candidate?.email,
+    hasEnrichment: Boolean(enrichment),
+  });
+
+  if (!jobId || !candidate) {
+    return new Response(
+      JSON.stringify({ error: "Missing jobId or candidate", received: Object.keys(body) }),
+      { status: 400 }
+    );
+  }
 
   const job = loadJobContext(jobId);
   if (!job) {
-    return new Response(JSON.stringify({ error: "Job not found" }), {
+    return new Response(JSON.stringify({ error: `Job not found: ${jobId}` }), {
       status: 404,
     });
   }
 
-  const systemPromptText = buildInterviewSystemPrompt(job, candidate, enrichment);
+  const systemPromptText = buildInterviewSystemPrompt(job, candidate, enrichment ?? undefined);
+
+  // Convert from UI message format (parts) to model message format (content)
+  const modelMessages = await convertToModelMessages(messages || []);
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
       const result = streamText({
         model: anthropic("claude-sonnet-4-20250514"),
         system: systemPromptText,
-        messages,
+        messages: modelMessages,
       });
 
       writer.merge(result.toUIMessageStream());
     },
     onError: (error) => {
-      console.error("Interview stream error:", error);
+      console.error("[interview] Stream error:", error);
       return "An error occurred during the interview. Please try again.";
     },
   });
