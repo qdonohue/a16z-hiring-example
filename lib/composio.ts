@@ -69,6 +69,14 @@ export async function composioExec(
     const entityId = await getEntityId();
     const entity = client.getEntity(entityId);
     const result = await entity.execute({ actionName: toolSlug, params: input });
+
+    // Composio returns { successful: false, error: "..." } on API-level failures
+    if (result?.successful === false || result?.successfull === false) {
+      const errMsg = result.error || result.data?.message || result.data?.http_error || "Unknown error";
+      console.error(`[composio] ✗ ${toolSlug} returned error in ${Date.now() - start}ms:`, errMsg);
+      throw new Error(String(errMsg));
+    }
+
     console.log(`[composio] ✓ ${toolSlug} completed in ${Date.now() - start}ms`);
     return result;
   } catch (err: any) {

@@ -63,28 +63,16 @@ async function enrichWithComposio(
   const tasks: Promise<void>[] = [];
 
   // ── LinkedIn ──────────────────────────────────────────────
+  // NOTE: Composio's LinkedIn integration only supports LINKEDIN_GET_MY_INFO (your own profile)
+  // and LINKEDIN_GET_COMPANY_INFO — there is no LINKEDIN_GET_PERSON for arbitrary profiles.
+  // We store the URL the candidate provided so the interviewer can reference it,
+  // but we can't pull their profile data automatically.
   if (linkedinUrl) {
-    console.log("[enrich] Executing LINKEDIN_GET_PERSON for:", linkedinUrl);
-    tasks.push(
-      composioExec("LINKEDIN_GET_PERSON", { person_url: linkedinUrl })
-        .then((data) => {
-          console.log("[enrich] ✓ LinkedIn success — headline:", data.headline);
-          results.linkedin = {
-            headline: data.headline,
-            summary: data.summary,
-            experience: data.experiences?.map(
-              (e: any) => `${e.title} at ${e.company} (${e.duration})`
-            ),
-            skills: data.skills?.slice(0, 10),
-            location: data.location,
-          };
-          sources.push({ name: "LinkedIn", status: "success", toolSlug: "LINKEDIN_GET_PERSON" });
-        })
-        .catch((err) => {
-          console.error("[enrich] ✗ LinkedIn failed:", err.message || err);
-          sources.push({ name: "LinkedIn", status: "error", toolSlug: "LINKEDIN_GET_PERSON" });
-        })
-    );
+    console.log("[enrich] LinkedIn: URL provided but LINKEDIN_GET_PERSON not available");
+    console.log("[enrich]   Available LinkedIn actions: LINKEDIN_GET_MY_INFO, LINKEDIN_GET_COMPANY_INFO");
+    console.log("[enrich]   Storing URL for interviewer reference:", linkedinUrl);
+    results.linkedin = { headline: linkedinUrl };
+    sources.push({ name: "LinkedIn", status: "skipped", toolSlug: "LINKEDIN_GET_PERSON (not available)" });
   } else {
     console.log("[enrich] LinkedIn: skipped (no URL provided)");
     sources.push({ name: "LinkedIn", status: "skipped" });
@@ -106,7 +94,7 @@ async function enrichWithComposio(
           direction: "desc",
         })
           .then((data) => {
-            const repos = data.repositories || data.data || data || [];
+            const repos = data?.data?.details || data?.data?.repositories || data?.repositories || data?.data || [];
             const repoList = Array.isArray(repos) ? repos : [];
             const languages = [...new Set(
               repoList.map((r: any) => r.language).filter(Boolean)
