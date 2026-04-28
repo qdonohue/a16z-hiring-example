@@ -1,5 +1,5 @@
-import { anthropic } from "@ai-sdk/anthropic";
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, streamText } from "ai";
+import { getModel } from "@/lib/ai/model";
 import { buildInterviewSystemPrompt, loadJobContext } from "@/lib/ai/interview";
 import type { CandidateInfo, EnrichmentData } from "@/lib/ai/interview";
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
       const result = streamText({
-        model: anthropic("claude-sonnet-4-20250514"),
+        model: getModel(),
         system: systemPromptText,
         messages: modelMessages,
       });

@@ -1,264 +1,232 @@
 "use client";
 
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import {
-  CheckCircle2Icon,
-  XCircleIcon,
+  ArrowUpIcon,
   Loader2Icon,
-  LockIcon,
-  RefreshCwIcon,
-  ShieldCheckIcon,
-  ExternalLinkIcon,
+  SettingsIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
-type Status = Record<string, any>;
-
-const PRE_INTERVIEW = [
-  { key: "linkedin", label: "LinkedIn", slug: "LINKEDIN_GET_PERSON", purpose: "Profile enrichment" },
-  { key: "github", label: "GitHub", slug: "GITHUB_LIST_REPOSITORIES_FOR_A_USER", purpose: "Repos & languages" },
-  { key: "twitter", label: "X/Twitter", slug: "TWITTER_USER_LOOKUP_BY_USERNAME", purpose: "Bio & recent posts" },
-];
-
-const POST_INTERVIEW = [
-  { key: "gmail", label: "Gmail", slug: "GMAIL_SEND_EMAIL", purpose: "Send follow-up emails" },
-  { key: "googledocs", label: "Google Docs", slug: "GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN", purpose: "Interview reports" },
-  { key: "googledrive", label: "Google Drive", slug: "GOOGLEDRIVE_MOVE_FILE", purpose: "File reports in shared folder" },
-  { key: "googlesheets", label: "Google Sheets", slug: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND", purpose: "Pipeline tracker" },
-  { key: "googlecalendar", label: "Google Calendar", slug: "GOOGLECALENDAR_CREATE_EVENT", purpose: "Auto-schedule (top 5%)" },
-  { key: "hubspot", label: "HubSpot", slug: "HUBSPOT_CREATE_CONTACT", purpose: "CRM upsert (de-duped)" },
-  { key: "slack", label: "Slack", slug: "SLACK_SEND_MESSAGE", purpose: "Team notifications" },
-  { key: "ashby", label: "Ashby", slug: "ASHBY_CREATE_CANDIDATE", purpose: "ATS candidate + job matching" },
-];
-
-const OPTIONAL = [
-  { key: "salesforce", label: "Salesforce", slug: "SALESFORCE_CREATE_CONTACT", purpose: "Alt CRM (toggle with HubSpot)" },
-  { key: "gong", label: "Gong", slug: "GONG_ADD_NEW_CALL_V2_CALLS", purpose: "Call logging" },
-];
-
 export default function SetupPage() {
-  const [password, setPassword] = useState("");
-  const [authed, setAuthed] = useState(false);
-  const [status, setStatus] = useState<Status | null>(null);
-  const [loading, setLoading] = useState(false);
+  return <SetupChat />;
+}
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/setup/status");
-      setStatus(await res.json());
-    } catch { /* ignore */ }
-    setLoading(false);
-  }, []);
+function SetupChat() {
+  const [input, setInput] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasSentInitial = useRef(false);
 
-  const checkAuth = () => {
-    if (password === "a16z-setup") {
-      setAuthed(true);
-      refresh();
-    }
-  };
+  const [transport] = useState(
+    () => new DefaultChatTransport({ api: "/api/setup/chat" })
+  );
 
-  if (!authed) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background px-4">
-        <div className="w-full max-w-sm text-center">
-          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-foreground text-background">
-            <LockIcon className="size-5" />
-          </div>
-          <h1 className="text-xl font-semibold">Integration Status</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Enter password to view connection status.</p>
-          <div className="mt-6 flex gap-2">
-            <input
-              autoFocus
-              className="flex-1 rounded-lg border border-border/50 bg-background px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-foreground/10"
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && checkAuth()}
-              placeholder="Password"
-              type="password"
-              value={password}
-            />
-            <button className="rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background hover:opacity-90" onClick={checkAuth}>
-              Enter
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const { messages, status, sendMessage, error } = useChat({
+    transport,
+    onError: (err) => console.error("[setup] chat error:", err),
+  });
 
-  const integrations = status?.integrations || {};
-  const connectedCount = Object.values(integrations).filter(Boolean).length;
-  const totalCount = Object.keys(integrations).length;
+  // Auto-start: ask the agent to check connections
+  useEffect(() => {
+    if (hasSentInitial.current) return;
+    hasSentInitial.current = true;
+    const timer = setTimeout(() => {
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: "Check what's connected and help me set up everything." }],
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [sendMessage]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSubmit = useCallback(() => {
+    if (!input.trim() || status !== "ready") return;
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: input }],
+    });
+    setInput("");
+    textareaRef.current?.focus();
+  }, [input, status, sendMessage]);
+
+  // Filter the initial auto-message
+  const displayMessages = messages.filter(
+    (m) =>
+      !(
+        m.role === "user" &&
+        m.parts?.some(
+          (p: any) => p.type === "text" && p.text?.includes("Check what's connected")
+        )
+      )
+  );
 
   return (
-    <div className="min-h-dvh bg-background px-4 py-8">
-      <div className="mx-auto max-w-2xl">
-        {/* Header */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">a16z Growth Team</p>
-            <h1 className="mt-1 text-xl font-semibold">Integration Status</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {status?.composio?.configured
-                ? `${connectedCount}/${totalCount} integrations connected via Composio`
-                : "Composio API key not configured"}
-            </p>
-          </div>
+    <div className="flex h-dvh flex-col bg-background">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3">
+        <div className="flex size-7 items-center justify-center rounded-lg bg-foreground/5 ring-1 ring-border/50">
+          <SettingsIcon className="size-3.5 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="text-sm font-medium">Integration Setup</p>
+          <p className="text-xs text-muted-foreground">
+            Connect your Composio integrations for the interview agent
+          </p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="mx-auto max-w-2xl space-y-5">
+          {error && (
+            <div className="rounded-lg border border-red-200/50 bg-red-50/50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
+              <p className="font-medium">Error</p>
+              <p className="mt-1 text-xs">{error.message}</p>
+            </div>
+          )}
+
+          {displayMessages.length === 0 && !error && (
+            <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+              <Loader2Icon className="mr-2 size-4 animate-spin" />
+              Checking connections...
+            </div>
+          )}
+
+          {displayMessages.map((message) => (
+            <div key={message.id} className="group/message w-full">
+              <div
+                className={cn(
+                  message.role === "user"
+                    ? "flex flex-col items-end gap-2"
+                    : "flex items-start gap-3"
+                )}
+              >
+                {message.role === "assistant" && (
+                  <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/5 ring-1 ring-border/40">
+                    <SettingsIcon className="size-3 text-muted-foreground" />
+                  </div>
+                )}
+                <div
+                  className={cn(
+                    message.role === "user"
+                      ? "w-fit max-w-[min(80%,52ch)] break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.7]"
+                      : "min-w-0 flex-1 text-[13px] leading-[1.7] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_strong]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_hr]:my-4 [&_hr]:border-border/40 [&_a]:text-blue-500 [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px]"
+                  )}
+                >
+                  {message.parts?.map((part: any, i: number) => {
+                    if (part.type === "text") {
+                      return (
+                        <div
+                          key={i}
+                          dangerouslySetInnerHTML={{ __html: formatMarkdown(part.text) }}
+                        />
+                      );
+                    }
+                    if (part.type === "tool-invocation" || part.type?.startsWith?.("tool-")) {
+                      return (
+                        <div key={i} className="my-2 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                          <span className="font-mono">
+                            {part.toolName || part.type}
+                          </span>
+                          {part.state === "result" && part.result?.redirectUrl && (
+                            <div className="mt-1">
+                              <a
+                                href={part.result.redirectUrl}
+                                target="_blank"
+                                rel="noopener"
+                                className="text-blue-500 underline"
+                              >
+                                Click here to connect →
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {status === "submitted" && displayMessages.at(-1)?.role !== "assistant" && (
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/5 ring-1 ring-border/40">
+                <SettingsIcon className="size-3 text-muted-foreground" />
+              </div>
+              <span className="mt-0.5 animate-pulse text-[13px] text-muted-foreground">
+                Checking...
+              </span>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* Input */}
+      <div className="border-t border-border/40 bg-background px-4 py-3">
+        <div className="mx-auto flex max-w-2xl gap-2">
+          <textarea
+            ref={textareaRef}
+            className="min-h-[44px] max-h-[160px] flex-1 resize-none rounded-xl border border-border/30 bg-card/70 px-4 py-3 text-[13px] leading-relaxed outline-none transition-shadow focus:shadow-sm focus:ring-1 focus:ring-foreground/10 placeholder:text-muted-foreground/35"
+            disabled={status !== "ready"}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder="Type a message..."
+            rows={1}
+            value={input}
+          />
           <button
-            className="flex items-center gap-1.5 rounded-lg border border-border/30 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-            disabled={loading}
-            onClick={refresh}
+            className={cn(
+              "flex size-[44px] shrink-0 items-center justify-center rounded-xl transition-all duration-200",
+              input.trim()
+                ? "bg-foreground text-background hover:opacity-85 active:scale-95"
+                : "cursor-not-allowed bg-muted text-muted-foreground/25"
+            )}
+            disabled={!input.trim() || status !== "ready"}
+            onClick={handleSubmit}
+            type="button"
           >
-            <RefreshCwIcon className={cn("size-3", loading && "animate-spin")} />
-            Refresh
+            <ArrowUpIcon className="size-4" />
           </button>
         </div>
-
-        {/* Core status */}
-        <div className="mb-6 grid grid-cols-2 gap-3">
-          <StatusCard
-            label="Anthropic (Claude)"
-            ok={status?.anthropic?.configured}
-            detail={status?.anthropic?.configured ? status.anthropic.keyPrefix : "Not set"}
-          />
-          <StatusCard
-            label="Composio SDK"
-            ok={status?.composio?.configured}
-            detail={status?.composio?.configured ? status.composio.keyPrefix : "Not set"}
-          />
-        </div>
-
-        {!status?.composio?.configured && (
-          <div className="mb-6 rounded-lg border border-yellow-200/50 bg-yellow-50/50 p-4 text-sm text-yellow-700 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-400">
-            <p className="font-medium">Set your Composio API key to see integration status</p>
-            <p className="mt-1 text-xs opacity-80">
-              Set <code>COMPOSIO_API_KEY</code> in your environment (Vercel dashboard for prod, <code>.env.local</code> for dev).
-              Connect integrations via the{" "}
-              <a className="underline" href="https://app.composio.dev/apps" target="_blank" rel="noopener">Composio dashboard</a>.
-              Use a service/agent account — not personal OAuth.
-            </p>
-          </div>
-        )}
-
-        {/* Pre-interview integrations */}
-        <Section title="Pre-Interview Enrichment" subtitle="Public data only — nothing from internal systems touches the AI prompt">
-          {PRE_INTERVIEW.map((i) => (
-            <IntegrationRow key={i.key} label={i.label} slug={i.slug} purpose={i.purpose} connected={integrations[i.key]} loading={loading && !status?.integrations} />
-          ))}
-        </Section>
-
-        {/* Post-interview integrations */}
-        <Section title="Post-Interview Actions" subtitle="Write-back only — CRM/email data never enters the AI conversation">
-          {POST_INTERVIEW.map((i) => (
-            <IntegrationRow key={i.key} label={i.label} slug={i.slug} purpose={i.purpose} connected={integrations[i.key]} loading={loading && !status?.integrations} />
-          ))}
-        </Section>
-
-        {/* Optional */}
-        <Section title="Optional" subtitle="Commented out in code — uncomment and connect to enable">
-          {OPTIONAL.map((i) => (
-            <IntegrationRow key={i.key} label={i.label} slug={i.slug} purpose={i.purpose} connected={integrations[i.key]} loading={loading && !status?.integrations} />
-          ))}
-        </Section>
-
-        {/* Env vars */}
-        <Section title="Configuration" subtitle="Set via environment variables (Vercel dashboard or .env.local)">
-          <div className="space-y-1.5 rounded-xl border border-border/20 bg-card p-3 text-xs font-mono">
-            <EnvRow label="GOOGLE_DRIVE_REPORTS_FOLDER_ID" value={status?.env?.GOOGLE_DRIVE_REPORTS_FOLDER_ID} />
-            <EnvRow label="GOOGLE_SHEETS_TRACKER_ID" value={status?.env?.GOOGLE_SHEETS_TRACKER_ID} />
-            <EnvRow label="SLACK_HIRING_CHANNEL" value={status?.env?.SLACK_HIRING_CHANNEL} />
-          </div>
-        </Section>
-
-        {/* Security */}
-        <div className="mt-8 rounded-xl border border-border/20 bg-card p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Security Model</h3>
-          <div className="space-y-2 text-xs text-muted-foreground">
-            <SecurityRow text="API keys live server-side only — never injected into AI prompts" />
-            <SecurityRow text="Each interview session is fully isolated — no cross-candidate data" />
-            <SecurityRow text="Pre-interview: only public profile data (LinkedIn, GitHub, X)" />
-            <SecurityRow text="CRM + Gmail + internal tools accessed post-interview only (write-back)" />
-            <SecurityRow text="Composio manages OAuth token refresh — agent uses API key at runtime" />
-            <SecurityRow text="Connect integrations via a service/agent account, not personal OAuth" />
-          </div>
-        </div>
-
-        {/* Footer */}
-        <p className="mt-6 text-center text-[11px] text-muted-foreground/40">
-          13 integrations &middot; ~25 Composio tool slugs &middot; Powered by Composio SDK
-        </p>
       </div>
     </div>
   );
 }
 
-function StatusCard({ label, ok, detail }: { label: string; ok?: boolean; detail?: string }) {
-  return (
-    <div className={cn(
-      "rounded-xl border p-3",
-      ok ? "border-green-200/50 bg-green-50/30 dark:border-green-900/50 dark:bg-green-950/20" : "border-border/30 bg-card"
-    )}>
-      <div className="flex items-center gap-2">
-        {ok ? <CheckCircle2Icon className="size-4 text-green-500" /> : <XCircleIcon className="size-4 text-muted-foreground/30" />}
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      {detail && <p className="mt-1 pl-6 text-[10px] font-mono text-muted-foreground">{detail}</p>}
-    </div>
-  );
-}
-
-function Section({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
-  return (
-    <div className="mb-6">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      <p className="mb-3 text-[11px] text-muted-foreground">{subtitle}</p>
-      <div className="space-y-1.5">{children}</div>
-    </div>
-  );
-}
-
-function IntegrationRow({ label, slug, purpose, connected, loading }: {
-  label: string; slug: string; purpose: string; connected?: boolean; loading: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/20 bg-card px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium">{label}</span>
-          <span className="text-[9px] font-mono text-muted-foreground/40">{slug}</span>
-        </div>
-        <p className="text-[10px] text-muted-foreground">{purpose}</p>
-      </div>
-      {loading ? (
-        <Loader2Icon className="size-3.5 animate-spin text-muted-foreground/50" />
-      ) : connected === true ? (
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
-          <CheckCircle2Icon className="size-2.5" /> Connected
-        </span>
-      ) : connected === false ? (
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Not connected</span>
-      ) : (
-        <span className="text-[10px] text-muted-foreground/30">—</span>
-      )}
-    </div>
-  );
-}
-
-function EnvRow({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="flex items-center gap-2">
-      {value ? <CheckCircle2Icon className="size-3 shrink-0 text-green-500/70" /> : <XCircleIcon className="size-3 shrink-0 text-muted-foreground/30" />}
-      <span className="text-muted-foreground/60">{label}=</span>
-      <span className={value ? "text-foreground" : "text-muted-foreground/30"}>{value || "(not set)"}</span>
-    </div>
-  );
-}
-
-function SecurityRow({ text }: { text: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <ShieldCheckIcon className="size-3 shrink-0 text-green-500/70" />
-      <span>{text}</span>
-    </div>
-  );
+function formatMarkdown(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/^---$/gm, "<hr />")
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(https?:\/\/[^\s<]+)/g, (match, url) => {
+      // Don't double-wrap URLs already in <a> tags
+      if (text.indexOf(`"${url}"`) !== -1) return match;
+      return `<a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+    })
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/\n\n/g, "<br /><br />")
+    .replace(/\n/g, "<br />");
 }

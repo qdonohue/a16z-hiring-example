@@ -1,22 +1,21 @@
-import { isComposioAvailable } from "@/lib/composio";
+import { isComposioAvailable, getEntityId } from "@/lib/composio";
 
 // Returns the current configuration status — which keys are set,
-// which integrations are connected, what env vars are configured.
+// which integrations are connected for our entity.
 
 export async function GET() {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const composioKey = process.env.COMPOSIO_API_KEY;
+  const entityId = getEntityId();
 
   const status: Record<string, any> = {
     environment: process.env.NODE_ENV,
-    isDev: process.env.NODE_ENV === "development",
     anthropic: {
       configured: Boolean(anthropicKey && anthropicKey !== "test"),
-      keyPrefix: anthropicKey ? anthropicKey.slice(0, 7) + "..." : null,
     },
     composio: {
       configured: isComposioAvailable(),
-      keyPrefix: composioKey ? composioKey.slice(0, 7) + "..." : null,
+      entityId,
     },
     env: {
       GOOGLE_DRIVE_REPORTS_FOLDER_ID: process.env.GOOGLE_DRIVE_REPORTS_FOLDER_ID || null,
@@ -25,25 +24,26 @@ export async function GET() {
     },
   };
 
-  // If Composio is configured, check which integrations are connected
   if (isComposioAvailable()) {
     try {
       const { Composio } = await import("composio-core");
       const client = new Composio({ apiKey: composioKey! });
       const connections = await client.connectedAccounts.list({ showActiveOnly: true });
-      const items = connections.items || connections || [];
+      const items = (connections.items || connections || []) as any[];
+
+      // Only count connections for our entity
+      const entityConnections = items.filter((c: any) => c.clientUniqueUserId === entityId);
       const activeApps = new Set(
-        items.map((c: any) => c.appName?.toLowerCase?.() || c.appUniqueId?.toLowerCase?.() || "")
+        entityConnections.map((c: any) => c.appName?.toLowerCase?.() || "")
       );
 
-      // Show entity ID being used
-      status.composio.entityId = items[0]?.clientUniqueUserId || "default";
-      status.composio.connectionCount = items.length;
+      status.composio.connectionCount = entityConnections.length;
+      status.composio.totalConnections = items.length;
 
       status.integrations = {
-        linkedin: activeApps.has("linkedin"),
         github: activeApps.has("github"),
         twitter: activeApps.has("twitter"),
+        linkedin: activeApps.has("linkedin"),
         gmail: activeApps.has("gmail"),
         googledocs: activeApps.has("googledocs"),
         googledrive: activeApps.has("googledrive"),
