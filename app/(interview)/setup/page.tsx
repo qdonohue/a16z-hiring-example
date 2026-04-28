@@ -1,232 +1,217 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import {
-  ArrowUpIcon,
+  CheckCircle2Icon,
+  ExternalLinkIcon,
   Loader2Icon,
+  RefreshCwIcon,
   SettingsIcon,
+  XCircleIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
+type IntegrationStatus = Record<string, boolean>;
+
+const INTEGRATIONS = [
+  { key: "github", label: "GitHub", phase: "pre", purpose: "Candidate repo analysis" },
+  { key: "twitter", label: "X/Twitter", phase: "pre", purpose: "Candidate posts & bio" },
+  { key: "linkedin", label: "LinkedIn", phase: "pre", purpose: "Profile data" },
+  { key: "gmail", label: "Gmail", phase: "post", purpose: "Send follow-up emails" },
+  { key: "googledocs", label: "Google Docs", phase: "post", purpose: "Interview reports" },
+  { key: "googledrive", label: "Google Drive", phase: "post", purpose: "File reports" },
+  { key: "googlesheets", label: "Google Sheets", phase: "post", purpose: "Pipeline tracker" },
+  { key: "googlecalendar", label: "Google Calendar", phase: "post", purpose: "Auto-schedule" },
+  { key: "hubspot", label: "HubSpot", phase: "post", purpose: "CRM upsert" },
+  { key: "slack", label: "Slack", phase: "post", purpose: "Team notifications" },
+  { key: "ashby", label: "Ashby", phase: "post", purpose: "ATS matching" },
+  { key: "salesforce", label: "Salesforce", phase: "optional", purpose: "Alt CRM" },
+  { key: "gong", label: "Gong", phase: "optional", purpose: "Call logging" },
+];
+
 export default function SetupPage() {
-  return <SetupChat />;
-}
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState<string | null>(null);
 
-function SetupChat() {
-  const [input, setInput] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const hasSentInitial = useRef(false);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/setup/status");
+      setStatus(await res.json());
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
 
-  const [transport] = useState(
-    () => new DefaultChatTransport({ api: "/api/setup/chat" })
-  );
+  useEffect(() => { refresh(); }, [refresh]);
 
-  const { messages, status, sendMessage, error } = useChat({
-    transport,
-    onError: (err) => console.error("[setup] chat error:", err),
-  });
-
-  // Auto-start: ask the agent to check connections
-  useEffect(() => {
-    if (hasSentInitial.current) return;
-    hasSentInitial.current = true;
-    const timer = setTimeout(() => {
-      sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: "Check what's connected and help me set up everything." }],
+  const connect = async (appName: string) => {
+    setConnecting(appName);
+    try {
+      const res = await fetch("/api/setup/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appName }),
       });
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [sendMessage]);
+      const data = await res.json();
+      if (data.oauthUrl) {
+        window.open(data.oauthUrl, "_blank");
+      } else if (data.error) {
+        alert(`Failed to connect ${appName}: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    }
+    setConnecting(null);
+  };
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const handleSubmit = useCallback(() => {
-    if (!input.trim() || status !== "ready") return;
-    sendMessage({
-      role: "user",
-      parts: [{ type: "text", text: input }],
-    });
-    setInput("");
-    textareaRef.current?.focus();
-  }, [input, status, sendMessage]);
-
-  // Filter the initial auto-message
-  const displayMessages = messages.filter(
-    (m) =>
-      !(
-        m.role === "user" &&
-        m.parts?.some(
-          (p: any) => p.type === "text" && p.text?.includes("Check what's connected")
-        )
-      )
-  );
+  const integrations: IntegrationStatus = status?.integrations || {};
+  const connected = Object.values(integrations).filter(Boolean).length;
+  const total = INTEGRATIONS.filter((i) => i.phase !== "optional").length;
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-foreground/5 ring-1 ring-border/50">
-          <SettingsIcon className="size-3.5 text-muted-foreground" />
-        </div>
-        <div>
-          <p className="text-sm font-medium">Integration Setup</p>
-          <p className="text-xs text-muted-foreground">
-            Connect your Composio integrations for the interview agent
-          </p>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto max-w-2xl space-y-5">
-          {error && (
-            <div className="rounded-lg border border-red-200/50 bg-red-50/50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
-              <p className="font-medium">Error</p>
-              <p className="mt-1 text-xs">{error.message}</p>
+    <div className="min-h-dvh bg-background px-4 py-8">
+      <div className="mx-auto max-w-xl">
+        {/* Header */}
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <SettingsIcon className="size-5 text-muted-foreground" />
+              <h1 className="text-lg font-semibold">Integration Setup</h1>
             </div>
-          )}
-
-          {displayMessages.length === 0 && !error && (
-            <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
-              <Loader2Icon className="mr-2 size-4 animate-spin" />
-              Checking connections...
-            </div>
-          )}
-
-          {displayMessages.map((message) => (
-            <div key={message.id} className="group/message w-full">
-              <div
-                className={cn(
-                  message.role === "user"
-                    ? "flex flex-col items-end gap-2"
-                    : "flex items-start gap-3"
-                )}
-              >
-                {message.role === "assistant" && (
-                  <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/5 ring-1 ring-border/40">
-                    <SettingsIcon className="size-3 text-muted-foreground" />
-                  </div>
-                )}
-                <div
-                  className={cn(
-                    message.role === "user"
-                      ? "w-fit max-w-[min(80%,52ch)] break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.7]"
-                      : "min-w-0 flex-1 text-[13px] leading-[1.7] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_strong]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_hr]:my-4 [&_hr]:border-border/40 [&_a]:text-blue-500 [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px]"
-                  )}
-                >
-                  {message.parts?.map((part: any, i: number) => {
-                    if (part.type === "text") {
-                      return (
-                        <div
-                          key={i}
-                          dangerouslySetInnerHTML={{ __html: formatMarkdown(part.text) }}
-                        />
-                      );
-                    }
-                    if (part.type === "tool-invocation" || part.type?.startsWith?.("tool-")) {
-                      return (
-                        <div key={i} className="my-2 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-                          <span className="font-mono">
-                            {part.toolName || part.type}
-                          </span>
-                          {part.state === "result" && part.result?.redirectUrl && (
-                            <div className="mt-1">
-                              <a
-                                href={part.result.redirectUrl}
-                                target="_blank"
-                                rel="noopener"
-                                className="text-blue-500 underline"
-                              >
-                                Click here to connect →
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {status === "submitted" && displayMessages.at(-1)?.role !== "assistant" && (
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/5 ring-1 ring-border/40">
-                <SettingsIcon className="size-3 text-muted-foreground" />
-              </div>
-              <span className="mt-0.5 animate-pulse text-[13px] text-muted-foreground">
-                Checking...
-              </span>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-border/40 bg-background px-4 py-3">
-        <div className="mx-auto flex max-w-2xl gap-2">
-          <textarea
-            ref={textareaRef}
-            className="min-h-[44px] max-h-[160px] flex-1 resize-none rounded-xl border border-border/30 bg-card/70 px-4 py-3 text-[13px] leading-relaxed outline-none transition-shadow focus:shadow-sm focus:ring-1 focus:ring-foreground/10 placeholder:text-muted-foreground/35"
-            disabled={status !== "ready"}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder="Type a message..."
-            rows={1}
-            value={input}
-          />
+            <p className="mt-1 text-sm text-muted-foreground">
+              {status?.composio?.configured
+                ? `${connected}/${total} connected · Entity: ${status.composio.entityId}`
+                : "Set COMPOSIO_API_KEY to get started"}
+            </p>
+          </div>
           <button
-            className={cn(
-              "flex size-[44px] shrink-0 items-center justify-center rounded-xl transition-all duration-200",
-              input.trim()
-                ? "bg-foreground text-background hover:opacity-85 active:scale-95"
-                : "cursor-not-allowed bg-muted text-muted-foreground/25"
-            )}
-            disabled={!input.trim() || status !== "ready"}
-            onClick={handleSubmit}
-            type="button"
+            className="flex items-center gap-1.5 rounded-lg border border-border/30 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            disabled={loading}
+            onClick={refresh}
           >
-            <ArrowUpIcon className="size-4" />
+            <RefreshCwIcon className={cn("size-3", loading && "animate-spin")} />
+            Refresh
           </button>
+        </div>
+
+        {/* API Keys */}
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          <KeyCard label="Anthropic / Gateway" ok={status?.anthropic?.configured} />
+          <KeyCard label="Composio SDK" ok={status?.composio?.configured} />
+        </div>
+
+        {!status?.composio?.configured && (
+          <div className="mb-6 rounded-lg border border-yellow-200/50 bg-yellow-50/50 p-3 text-sm text-yellow-700 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-400">
+            Set <code>COMPOSIO_API_KEY</code> in your environment to connect integrations.
+          </div>
+        )}
+
+        {/* Pre-interview */}
+        <Section title="Pre-Interview" subtitle="Public data enrichment">
+          {INTEGRATIONS.filter((i) => i.phase === "pre").map((i) => (
+            <IntegrationRow
+              key={i.key}
+              label={i.label}
+              purpose={i.purpose}
+              connected={integrations[i.key]}
+              loading={loading}
+              connecting={connecting === i.key}
+              onConnect={() => connect(i.key)}
+            />
+          ))}
+        </Section>
+
+        {/* Post-interview */}
+        <Section title="Post-Interview" subtitle="Write-back actions (no data leaked to AI)">
+          {INTEGRATIONS.filter((i) => i.phase === "post").map((i) => (
+            <IntegrationRow
+              key={i.key}
+              label={i.label}
+              purpose={i.purpose}
+              connected={integrations[i.key]}
+              loading={loading}
+              connecting={connecting === i.key}
+              onConnect={() => connect(i.key)}
+            />
+          ))}
+        </Section>
+
+        {/* Optional */}
+        <Section title="Optional" subtitle="Commented out — connect to enable">
+          {INTEGRATIONS.filter((i) => i.phase === "optional").map((i) => (
+            <IntegrationRow
+              key={i.key}
+              label={i.label}
+              purpose={i.purpose}
+              connected={integrations[i.key]}
+              loading={loading}
+              connecting={connecting === i.key}
+              onConnect={() => connect(i.key)}
+            />
+          ))}
+        </Section>
+
+        {/* Footer */}
+        <div className="mt-6 rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+          <p>Click <strong>Connect</strong> to start an OAuth flow for each integration. After authorizing, come back and click <strong>Refresh</strong>.</p>
+          <p className="mt-2">When done, go to <a href="/" className="font-medium text-foreground underline">the home page</a> to start an interview.</p>
         </div>
       </div>
     </div>
   );
 }
 
-function formatMarkdown(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/^---$/gm, "<hr />")
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/(https?:\/\/[^\s<]+)/g, (match, url) => {
-      // Don't double-wrap URLs already in <a> tags
-      if (text.indexOf(`"${url}"`) !== -1) return match;
-      return `<a href="${url}" target="_blank" rel="noopener">${url}</a>`;
-    })
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/\n\n/g, "<br /><br />")
-    .replace(/\n/g, "<br />");
+function KeyCard({ label, ok }: { label: string; ok?: boolean }) {
+  return (
+    <div className={cn("rounded-xl border p-3", ok ? "border-green-200/50 bg-green-50/30 dark:border-green-900/50 dark:bg-green-950/20" : "border-border/30 bg-card")}>
+      <div className="flex items-center gap-2">
+        {ok ? <CheckCircle2Icon className="size-4 text-green-500" /> : <XCircleIcon className="size-4 text-muted-foreground/30" />}
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-5">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      <p className="mb-2 text-[11px] text-muted-foreground">{subtitle}</p>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function IntegrationRow({ label, purpose, connected, loading, connecting, onConnect }: {
+  label: string; purpose: string; connected?: boolean; loading: boolean; connecting: boolean; onConnect: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border/20 bg-card px-3 py-2.5">
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-medium">{label}</span>
+        <span className="ml-2 text-[10px] text-muted-foreground">{purpose}</span>
+      </div>
+      {loading ? (
+        <Loader2Icon className="size-3.5 animate-spin text-muted-foreground/50" />
+      ) : connected ? (
+        <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
+          <CheckCircle2Icon className="size-2.5" /> Connected
+        </span>
+      ) : (
+        <button
+          className="flex items-center gap-1 rounded-full border border-border/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground disabled:opacity-50"
+          disabled={connecting}
+          onClick={onConnect}
+        >
+          {connecting ? (
+            <Loader2Icon className="size-2.5 animate-spin" />
+          ) : (
+            <ExternalLinkIcon className="size-2.5" />
+          )}
+          Connect
+        </button>
+      )}
+    </div>
+  );
 }
