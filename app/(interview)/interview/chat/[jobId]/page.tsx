@@ -1,6 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import {
   ArrowUpIcon,
   CheckCircle2Icon,
@@ -75,15 +76,27 @@ export default function InterviewChatPage() {
   const hasSentInitial = useRef(false);
   const hasTriggeredCompletion = useRef(false);
 
-  // useChat sends `body` with every request — so once enrichment lands,
-  // the next API call automatically gets it in the system prompt
+  // Refs for mutable body data — the transport's body function reads these at request time
+  const candidateRef = useRef(candidate);
+  candidateRef.current = candidate;
+  const enrichmentRef = useRef(enrichment);
+  enrichmentRef.current = enrichment;
+
+  // Transport is created once. body is a function so it reads current state via refs.
+  const [transport] = useState(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/interview",
+        body: () => ({
+          jobId,
+          candidate: candidateRef.current,
+          enrichment: enrichmentRef.current,
+        }),
+      })
+  );
+
   const { messages, input = "", setInput, status, sendMessage, error } = useChat({
-    api: "/api/interview",
-    body: {
-      jobId,
-      candidate,
-      enrichment, // null at first, populated later — AI adapts
-    },
+    transport,
     onError: (err) => {
       console.error("[useChat] error:", err);
     },
