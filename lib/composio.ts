@@ -4,6 +4,7 @@ import { Composio } from "composio-core";
 // API key is read from env and NEVER exposed to the AI model or client.
 
 let _client: Composio | null = null;
+let _entityId: string | null = null;
 
 function getClient(): Composio | null {
   if (!process.env.COMPOSIO_API_KEY) return null;
@@ -14,6 +15,40 @@ function getClient(): Composio | null {
     });
   }
   return _client;
+}
+
+/**
+ * Resolve the entity ID from connected accounts.
+ * Uses COMPOSIO_ENTITY_ID env var if set, otherwise auto-detects from the first active connection.
+ */
+async function getEntityId(): Promise<string> {
+  if (_entityId) return _entityId;
+
+  // Allow explicit override
+  if (process.env.COMPOSIO_ENTITY_ID) {
+    _entityId = process.env.COMPOSIO_ENTITY_ID;
+    console.log("[composio] Using entity from env:", _entityId);
+    return _entityId;
+  }
+
+  // Auto-detect from connected accounts
+  const client = getClient();
+  if (!client) return "default";
+
+  try {
+    const connections = await client.connectedAccounts.list({ showActiveOnly: true });
+    const items = connections.items || connections || [];
+    if (items.length > 0) {
+      _entityId = items[0].clientUniqueUserId || "default";
+      console.log("[composio] Auto-detected entity:", _entityId, `(from ${items.length} connections)`);
+      return _entityId;
+    }
+  } catch (err: any) {
+    console.warn("[composio] Failed to auto-detect entity:", err.message);
+  }
+
+  _entityId = "default";
+  return _entityId;
 }
 
 /**
@@ -31,7 +66,8 @@ export async function composioExec(
   console.log(`[composio] exec ${toolSlug}`, Object.keys(input).join(", "));
 
   try {
-    const entity = client.getEntity("default");
+    const entityId = await getEntityId();
+    const entity = client.getEntity(entityId);
     const result = await entity.execute({ actionName: toolSlug, params: input });
     console.log(`[composio] ✓ ${toolSlug} completed in ${Date.now() - start}ms`);
     return result;

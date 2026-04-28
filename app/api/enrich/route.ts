@@ -147,7 +147,7 @@ async function enrichWithComposio(
 
   // ── X/Twitter (via TWITTER_USER_LOOKUP_BY_USERNAME + TWITTER_RECENT_SEARCH) ──
   if (xHandle) {
-    const handle = xHandle.replace(/^@/, "").trim();
+    const handle = xHandle.replace(/^@/, "").replace(/https?:\/\/(www\.)?(twitter\.com|x\.com)\//, "").replace(/\/.*/, "").trim();
     if (handle) {
       console.log("[enrich] Executing TWITTER_USER_LOOKUP_BY_USERNAME for:", handle);
       tasks.push(

@@ -31,9 +31,14 @@ export async function GET() {
       const { Composio } = await import("composio-core");
       const client = new Composio({ apiKey: composioKey! });
       const connections = await client.connectedAccounts.list({ showActiveOnly: true });
+      const items = connections.items || connections || [];
       const activeApps = new Set(
-        (connections.items || connections || []).map((c: any) => c.appName?.toLowerCase?.() || c.appUniqueId?.toLowerCase?.() || "")
+        items.map((c: any) => c.appName?.toLowerCase?.() || c.appUniqueId?.toLowerCase?.() || "")
       );
+
+      // Show entity ID being used
+      status.composio.entityId = items[0]?.clientUniqueUserId || "default";
+      status.composio.connectionCount = items.length;
 
       status.integrations = {
         linkedin: activeApps.has("linkedin"),
