@@ -15,12 +15,41 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { email, linkedinUrl, githubUrl, xHandle } = body;
 
+  console.log("[enrich] Starting enrichment for:", email);
+  console.log("[enrich] Composio available:", isComposioAvailable());
+  console.log("[enrich] Inputs provided:", {
+    linkedin: Boolean(linkedinUrl),
+    github: Boolean(githubUrl),
+    twitter: Boolean(xHandle),
+  });
+
+  const start = Date.now();
+
   if (isComposioAvailable()) {
     const enrichment = await enrichWithComposio(email, linkedinUrl, githubUrl, xHandle);
+    console.log("[enrich] Completed in", Date.now() - start, "ms");
+    console.log("[enrich] Sources:", enrichment.sources?.map((s) => `${s.name}: ${s.status}`).join(", "));
     return Response.json(enrichment);
   }
 
-  return Response.json(getMockEnrichment(email, linkedinUrl, githubUrl, xHandle));
+  console.log("[enrich] Using mock data (no COMPOSIO_API_KEY)");
+  console.log("[enrich] In production, the following Composio tools would execute:");
+  if (linkedinUrl) console.log("[enrich]   → LINKEDIN_GET_PERSON:", linkedinUrl);
+  else console.log("[enrich]   → LINKEDIN_GET_PERSON: skipped (no URL provided)");
+  if (githubUrl) console.log("[enrich]   → GITHUB_LIST_REPOSITORIES_FOR_A_USER:", githubUrl);
+  else console.log("[enrich]   → GITHUB_LIST_REPOSITORIES_FOR_A_USER: skipped (no URL provided)");
+  if (xHandle) {
+    console.log("[enrich]   → TWITTER_USER_LOOKUP_BY_USERNAME:", xHandle);
+    console.log("[enrich]   → TWITTER_RECENT_SEARCH: from:" + xHandle.replace(/^@/, ""));
+  } else {
+    console.log("[enrich]   → TWITTER_USER_LOOKUP_BY_USERNAME: skipped (no handle provided)");
+  }
+  console.log("[enrich]   → GMAIL_LIST_THREADS: skipped (security — post-interview only)");
+  console.log("[enrich]   → HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA: skipped (security — post-interview only)");
+
+  const enrichment = getMockEnrichment(email, linkedinUrl, githubUrl, xHandle);
+  console.log("[enrich] Mock enrichment returned in", Date.now() - start, "ms");
+  return Response.json(enrichment);
 }
 
 async function enrichWithComposio(
@@ -35,9 +64,11 @@ async function enrichWithComposio(
 
   // ── LinkedIn ──────────────────────────────────────────────
   if (linkedinUrl) {
+    console.log("[enrich] Executing LINKEDIN_GET_PERSON for:", linkedinUrl);
     tasks.push(
       composioExec("LINKEDIN_GET_PERSON", { person_url: linkedinUrl })
         .then((data) => {
+          console.log("[enrich] ✓ LinkedIn success — headline:", data.headline);
           results.linkedin = {
             headline: data.headline,
             summary: data.summary,
@@ -49,9 +80,13 @@ async function enrichWithComposio(
           };
           sources.push({ name: "LinkedIn", status: "success", toolSlug: "LINKEDIN_GET_PERSON" });
         })
-        .catch(() => sources.push({ name: "LinkedIn", status: "error", toolSlug: "LINKEDIN_GET_PERSON" }))
+        .catch((err) => {
+          console.error("[enrich] ✗ LinkedIn failed:", err.message || err);
+          sources.push({ name: "LinkedIn", status: "error", toolSlug: "LINKEDIN_GET_PERSON" });
+        })
     );
   } else {
+    console.log("[enrich] LinkedIn: skipped (no URL provided)");
     sources.push({ name: "LinkedIn", status: "skipped" });
   }
 
@@ -62,6 +97,7 @@ async function enrichWithComposio(
       .replace(/\/.*/, "")
       .trim();
     if (username) {
+      console.log("[enrich] Executing GITHUB_LIST_REPOSITORIES_FOR_A_USER for:", username);
       tasks.push(
         composioExec("GITHUB_LIST_REPOSITORIES_FOR_A_USER", {
           username,
@@ -75,6 +111,8 @@ async function enrichWithComposio(
             const languages = [...new Set(
               repoList.map((r: any) => r.language).filter(Boolean)
             )] as string[];
+
+            console.log("[enrich] ✓ GitHub success —", repoList.length, "repos, languages:", languages.join(", "));
 
             results.github = {
               bio: data.bio || undefined,
@@ -96,10 +134,14 @@ async function enrichWithComposio(
             };
             sources.push({ name: "GitHub", status: "success", toolSlug: "GITHUB_LIST_REPOSITORIES_FOR_A_USER" });
           })
-          .catch(() => sources.push({ name: "GitHub", status: "error", toolSlug: "GITHUB_LIST_REPOSITORIES_FOR_A_USER" }))
+          .catch((err) => {
+            console.error("[enrich] ✗ GitHub failed:", err.message || err);
+            sources.push({ name: "GitHub", status: "error", toolSlug: "GITHUB_LIST_REPOSITORIES_FOR_A_USER" });
+          })
       );
     }
   } else {
+    console.log("[enrich] GitHub: skipped (no URL provided)");
     sources.push({ name: "GitHub", status: "skipped" });
   }
 
@@ -107,15 +149,17 @@ async function enrichWithComposio(
   if (xHandle) {
     const handle = xHandle.replace(/^@/, "").trim();
     if (handle) {
+      console.log("[enrich] Executing TWITTER_USER_LOOKUP_BY_USERNAME for:", handle);
       tasks.push(
         (async () => {
           try {
-            // Step 1: Get profile
             const profileData = await composioExec("TWITTER_USER_LOOKUP_BY_USERNAME", {
               username: handle,
               user_fields: ["description", "public_metrics", "created_at", "location"],
             });
             const user = profileData?.data?.data || profileData?.data || profileData;
+
+            console.log("[enrich] ✓ Twitter profile — bio:", user.description?.slice(0, 60), "followers:", user.public_metrics?.followers_count);
 
             results.twitter = {
               bio: user.description,
@@ -124,6 +168,7 @@ async function enrichWithComposio(
             };
 
             // Step 2: Get recent tweets
+            console.log("[enrich] Executing TWITTER_RECENT_SEARCH for: from:" + handle);
             try {
               const tweetsData = await composioExec("TWITTER_RECENT_SEARCH", {
                 query: `from:${handle} -is:retweet -is:reply`,
@@ -137,32 +182,28 @@ async function enrichWithComposio(
                   date: t.created_at ? new Date(t.created_at).toLocaleDateString() : "recent",
                   likes: t.public_metrics?.like_count || 0,
                 }));
+                console.log("[enrich] ✓ Twitter recent search —", results.twitter!.recentPosts!.length, "tweets found");
               }
-            } catch {
-              // Tweets search failed but profile succeeded — that's fine
+            } catch (err: any) {
+              console.warn("[enrich] ⚠ Twitter recent search failed (profile still succeeded):", err.message || err);
             }
 
             sources.push({ name: "X/Twitter", status: "success", toolSlug: "TWITTER_USER_LOOKUP_BY_USERNAME" });
-          } catch {
+          } catch (err: any) {
+            console.error("[enrich] ✗ Twitter failed:", err.message || err);
             sources.push({ name: "X/Twitter", status: "error", toolSlug: "TWITTER_USER_LOOKUP_BY_USERNAME" });
           }
         })()
       );
     }
   } else {
+    console.log("[enrich] X/Twitter: skipped (no handle provided)");
     sources.push({ name: "X/Twitter", status: "skipped" });
   }
 
-  // NOTE: Gmail thread search is intentionally NOT done during pre-interview enrichment.
-  // Internal email threads could contain hiring discussions, salary info, or references
-  // to other candidates. This data would be injected into the AI's system prompt where
-  // a candidate could extract it via prompt injection. Gmail is used post-interview only
-  // (for sending emails via GMAIL_SEND_EMAIL — a write-only, non-leaking operation).
-
-  // NOTE: HubSpot CRM is intentionally NOT queried during pre-interview enrichment.
-  // CRM data could contain internal notes, deal info, or references to other candidates.
-  // If injected into the system prompt, a candidate could extract it via prompt injection.
-  // CRM lookup + write-back happens ONLY in the post-interview /api/interview/complete route.
+  // NOTE: Gmail + HubSpot intentionally excluded from pre-interview enrichment (security)
+  console.log("[enrich] Gmail: skipped (security — post-interview only)");
+  console.log("[enrich] HubSpot: skipped (security — post-interview only)");
 
   await Promise.allSettled(tasks);
   results.sources = sources;

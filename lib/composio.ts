@@ -8,6 +8,7 @@ let _client: Composio | null = null;
 function getClient(): Composio | null {
   if (!process.env.COMPOSIO_API_KEY) return null;
   if (!_client) {
+    console.log("[composio] Initializing Composio SDK client");
     _client = new Composio({
       apiKey: process.env.COMPOSIO_API_KEY,
     });
@@ -18,8 +19,6 @@ function getClient(): Composio | null {
 /**
  * Execute a Composio tool by slug.
  * Returns the response data, or throws on failure.
- *
- * Example: await composioExec("GMAIL_SEND_EMAIL", { recipient_email: "...", subject: "...", body: "..." })
  */
 export async function composioExec(
   toolSlug: string,
@@ -28,9 +27,18 @@ export async function composioExec(
   const client = getClient();
   if (!client) throw new Error("Composio not configured (missing COMPOSIO_API_KEY)");
 
-  const entity = client.getEntity("default");
-  const result = await entity.executeAction(toolSlug, input, {});
-  return result;
+  const start = Date.now();
+  console.log(`[composio] exec ${toolSlug}`, Object.keys(input).join(", "));
+
+  try {
+    const entity = client.getEntity("default");
+    const result = await entity.executeAction(toolSlug, input, {});
+    console.log(`[composio] ✓ ${toolSlug} completed in ${Date.now() - start}ms`);
+    return result;
+  } catch (err: any) {
+    console.error(`[composio] ✗ ${toolSlug} failed in ${Date.now() - start}ms:`, err.message || err);
+    throw err;
+  }
 }
 
 /**

@@ -35,11 +35,19 @@ export async function POST(request: Request) {
 
   const hasComposio = isComposioAvailable();
   const results: Record<string, any> = { tier, weightedScore, actions: [] };
+  const start = Date.now();
+
+  console.log("[complete] ═══════════════════════════════════════════════");
+  console.log("[complete] Post-interview actions for:", candidateName || candidateEmail);
+  console.log("[complete] Tier:", tier, "| Score:", weightedScore, "| Composio:", hasComposio);
 
   // ── Tier-specific primary action ──────────────────────────
 
   if (tier === "TOP_5_PERCENT") {
+    console.log("[complete] TOP_5_PERCENT → scheduling partner call + confirmation email");
     if (hasComposio) {
+      console.log("[complete]   → GOOGLECALENDAR_CREATE_EVENT: scheduling for", nextBusinessDay(10));
+      console.log("[complete]   → GMAIL_SEND_EMAIL: confirmation to", candidateEmail);
       const [cal, email] = await Promise.allSettled([
         composioExec("GOOGLECALENDAR_CREATE_EVENT", {
           title: `Growth Fellowship: ${candidateName || candidateEmail} — Partner Intro`,
@@ -56,35 +64,46 @@ export async function POST(request: Request) {
       ]);
       results.calendar = unwrap(cal);
       results.email = unwrap(email);
+      console.log("[complete]   ✓ Calendar:", cal.status, "| Email:", email.status);
       results.actions.push("calendar_scheduled", "confirmation_email_sent");
     } else {
+      console.log("[complete]   (mock) Would execute GOOGLECALENDAR_CREATE_EVENT →", candidateEmail, "+ andrew@a16z.com");
+      console.log("[complete]   (mock) Would execute GMAIL_SEND_EMAIL →", candidateEmail, "subject: Let's talk");
       results.mock = true;
       results.calendar = { title: `Partner Intro: ${candidateName || candidateEmail}`, scheduledFor: nextBusinessDay(10) };
       results.email = { to: candidateEmail, subject: "Let's talk" };
       results.actions.push("calendar_scheduled", "confirmation_email_sent");
     }
   } else if (tier === "FOLLOW_UP") {
+    console.log("[complete] FOLLOW_UP → sending follow-up interview invite");
     if (hasComposio) {
+      console.log("[complete]   → GMAIL_SEND_EMAIL: follow-up to", candidateEmail);
       results.email = await composioExec("GMAIL_SEND_EMAIL", {
         recipient_email: candidateEmail,
         subject: "Growth Engineer Fellowship — Next step",
         body: formatEmail(candidateName, "followup"),
       }).catch(errWrap);
+      console.log("[complete]   ✓ Follow-up email sent");
       results.actions.push("followup_email_sent");
     } else {
+      console.log("[complete]   (mock) Would execute GMAIL_SEND_EMAIL →", candidateEmail, "subject: Next step");
       results.mock = true;
       results.email = { to: candidateEmail, action: "Sent follow-up interview invite" };
       results.actions.push("followup_email_sent");
     }
   } else {
+    console.log("[complete] PASS → sending warm rejection");
     if (hasComposio) {
+      console.log("[complete]   → GMAIL_SEND_EMAIL: rejection to", candidateEmail);
       results.email = await composioExec("GMAIL_SEND_EMAIL", {
         recipient_email: candidateEmail,
         subject: "Growth Engineer Fellowship — Update",
         body: formatEmail(candidateName, "pass"),
       }).catch(errWrap);
+      console.log("[complete]   ✓ Rejection email sent");
       results.actions.push("rejection_email_sent");
     } else {
+      console.log("[complete]   (mock) Would execute GMAIL_SEND_EMAIL →", candidateEmail, "subject: Update");
       results.mock = true;
       results.email = { to: candidateEmail, action: "Sent soft rejection, kept in network" };
       results.actions.push("rejection_email_sent");
@@ -100,7 +119,14 @@ export async function POST(request: Request) {
   const dateStr = new Date().toISOString().split("T")[0];
   const tierLabel = tier === "TOP_5_PERCENT" ? "Top 5%" : tier === "FOLLOW_UP" ? "Follow-up" : "Pass";
 
+  console.log("[complete] ── Common actions (all tiers) ──────────────");
+
   if (hasComposio) {
+    console.log("[complete]   → GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN: creating interview report");
+    console.log("[complete]   → GOOGLEDRIVE_MOVE_FILE: moving to folder", DRIVE_FOLDER_ID || "(not configured)");
+    console.log("[complete]   → HUBSPOT: de-dupe search + create/update contact");
+    console.log("[complete]   → SLACK_SEND_MESSAGE: notifying", process.env.SLACK_HIRING_CHANNEL || "#hiring-growth-fellowship");
+    console.log("[complete]   → GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND: pipeline tracker", process.env.GOOGLE_SHEETS_TRACKER_ID || "(not configured)");
     const [docResult, hubspotResult, slackResult, sheetsResult] = await Promise.allSettled([
       // Google Doc: full interview report → Drive folder
       createInterviewReport(candidateName, candidateEmail, tier, weightedScore, summary),
@@ -124,6 +150,10 @@ export async function POST(request: Request) {
     results.hubspot = unwrap(hubspotResult);
     results.slack = unwrap(slackResult);
     results.sheets = unwrap(sheetsResult);
+    console.log("[complete]   ✓ Google Doc:", docResult.status);
+    console.log("[complete]   ✓ HubSpot:", hubspotResult.status);
+    console.log("[complete]   ✓ Slack:", slackResult.status);
+    console.log("[complete]   ✓ Sheets:", sheetsResult.status);
     results.actions.push("google_doc_created", "hubspot_upserted", "slack_notified", "sheets_row_appended");
 
     // ── Salesforce (commented out — toggle with HubSpot) ──────
@@ -137,9 +167,8 @@ export async function POST(request: Request) {
     // results.actions.push("salesforce_upserted");
 
     // ── Ashby ATS: create candidate + match to portfolio jobs ──
-    // For candidates worth advancing (TOP_5_PERCENT or FOLLOW_UP),
-    // add them to Ashby and search for matching portfolio company roles.
     if (tier === "TOP_5_PERCENT" || tier === "FOLLOW_UP") {
+      console.log("[complete]   → ASHBY: creating candidate + searching for matching portfolio jobs");
       const ashbyResult = await ashbyCreateAndMatch({
         name: candidateName,
         email: candidateEmail,
@@ -150,6 +179,7 @@ export async function POST(request: Request) {
         summary,
       }).catch(errWrap);
       results.ashby = ashbyResult;
+      console.log("[complete]   ✓ Ashby:", JSON.stringify(ashbyResult));
       results.actions.push("ashby_candidate_created");
     }
 
@@ -181,6 +211,22 @@ export async function POST(request: Request) {
     // results.gong = gongResult;
     // results.actions.push("gong_call_logged");
   } else {
+    console.log("[complete]   (mock) No COMPOSIO_API_KEY — logging what would happen:");
+    console.log("[complete]   (mock) → GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN: Interview Report:", candidateName || candidateEmail);
+    console.log("[complete]   (mock) → GOOGLEDRIVE_MOVE_FILE: move doc to folder", DRIVE_FOLDER_ID || "(not configured — stays in root)");
+    console.log("[complete]   (mock) → HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA: search for", candidateEmail);
+    console.log("[complete]   (mock) → HUBSPOT_CREATE_CONTACT or HUBSPOT_UPDATE_CONTACT: upsert with score=" + weightedScore + " tier=" + tier);
+    console.log("[complete]   (mock) → SLACK_SEND_MESSAGE: post to", process.env.SLACK_HIRING_CHANNEL || "#hiring-growth-fellowship");
+    console.log("[complete]   (mock) → GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND: append [" + dateStr + ", " + (candidateName || "?") + ", " + candidateEmail + ", " + weightedScore + ", " + tierLabel + "]");
+    if (tier === "TOP_5_PERCENT" || tier === "FOLLOW_UP") {
+      console.log("[complete]   (mock) → ASHBY_SEARCH_CANDIDATES: de-dupe check for", candidateEmail);
+      console.log("[complete]   (mock) → ASHBY_CREATE_CANDIDATE: name=" + (candidateName || "?") + " email=" + candidateEmail);
+      console.log("[complete]   (mock) → ASHBY_SEARCH_JOBS: searching for growth/GTM roles in portfolio");
+      console.log("[complete]   (mock) → ASHBY_CREATE_APPLICATION: would apply candidate to matching jobs");
+    }
+    console.log("[complete]   (mock) → SALESFORCE_SEARCH_CONTACTS + SALESFORCE_CREATE_CONTACT: (commented out — toggle with HubSpot)");
+    console.log("[complete]   (mock) → GONG_ADD_NEW_CALL_V2_CALLS: (commented out — would log interview as call)");
+
     results.mock = true;
     results.googleDoc = { title: `Interview Report: ${candidateName || candidateEmail}`, folder: DRIVE_FOLDER_ID };
     results.hubspot = { action: "Upserted HubSpot contact (de-duped)", email: candidateEmail, tier };
@@ -197,6 +243,10 @@ export async function POST(request: Request) {
       "sheets_row_appended", "salesforce_available", "gong_available"
     );
   }
+
+  console.log("[complete] ── Done in", Date.now() - start, "ms ──────────────");
+  console.log("[complete] Actions executed:", results.actions.join(", "));
+  console.log("[complete] ═══════════════════════════════════════════════");
 
   return Response.json(results);
 }
